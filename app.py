@@ -2,9 +2,8 @@ import streamlit as st
 import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
 import time
 import os
@@ -25,38 +24,42 @@ def scrape_linkedin(role, location, experience_levels):
     Returns:
         pandas.DataFrame: A DataFrame containing the scraped job listings.
     """
-    # --- Selenium Setup ---
+    # --- Selenium Setup for Streamlit Cloud ---
     st.info(f"Setting up browser to search for '{role}' in {location}...")
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument(
+        "--disable-gpu"
+    )  # Recommended for headless environments
 
     driver = None  # Initialize driver to None
     try:
-        driver = webdriver.Chrome(options=chrome_options)
+        # Use webdriver-manager to handle the driver automatically
+        # This is more robust for different environments
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
 
         # --- Build LinkedIn URL with Filters ---
         base_url = "https://www.linkedin.com/jobs/search/?"
         params = {"keywords": role, "location": location}
 
-        # Add experience level filters (f_E)
         if experience_levels:
             params["f_E"] = ",".join(experience_levels)
 
         search_url = base_url + urlencode(params)
-        st.write(f"Navigating to LinkedIn Jobs for '{role}' in '{location}'...")
+        st.write(f"Navigating to: {search_url}")
         driver.get(search_url)
 
-        # Give time for the page to load
         time.sleep(10)
 
         # --- Scrolling to load all jobs ---
         st.write("Scrolling to load more job listings...")
         last_height = driver.execute_script("return document.body.scrollHeight")
-        for _ in range(3):  # Scroll a few times to load more jobs
+        for _ in range(3):
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(5)  # Wait to load page
+            time.sleep(5)
             new_height = driver.execute_script("return document.body.scrollHeight")
             if new_height == last_height:
                 break
@@ -86,9 +89,7 @@ def scrape_linkedin(role, location, experience_levels):
             post_date = date_tag.text.strip() if date_tag else "N/A"
             link = link_tag["href"] if link_tag else "N/A"
 
-            # --- Clean the URL ---
             if link and link != "N/A":
-                # Remove query parameters
                 clean_link = link.split("?")[0]
                 if not clean_link.endswith("/"):
                     clean_link += "/"
@@ -118,7 +119,7 @@ def scrape_linkedin(role, location, experience_levels):
 def convert_post_date_to_days(post_date_str):
     """Converts 'X days/weeks/months ago' string to a number of days."""
     if not isinstance(post_date_str, str):
-        return 999  # Put unknown dates at the end
+        return 999
 
     post_date_str = post_date_str.lower()
 
@@ -126,9 +127,7 @@ def convert_post_date_to_days(post_date_str):
         return 0
 
     try:
-        # Find the number in the string
         num = int(re.search(r"\d+", post_date_str).group())
-
         if "day" in post_date_str:
             return num
         elif "week" in post_date_str:
@@ -138,7 +137,6 @@ def convert_post_date_to_days(post_date_str):
         else:
             return 999
     except (AttributeError, ValueError):
-        # If no number is found or conversion fails
         return 999
 
 
@@ -154,13 +152,11 @@ You can provide a list of locations, and the app will search them in order.
 """
 )
 
-# --- Initialize session state ---
 if "cleaned_df" not in st.session_state:
     st.session_state.cleaned_df = None
 if "jobs_df" not in st.session_state:
     st.session_state.jobs_df = None
 
-# --- Filter Mappings ---
 EXPERIENCE_LEVELS = {
     "Internship": "1",
     "Entry level": "2",
@@ -170,7 +166,6 @@ EXPERIENCE_LEVELS = {
     "Executive": "6",
 }
 
-# --- User Inputs ---
 with st.form("job_search_form"):
     role = st.text_input("Enter Job Role", "Data Scientist")
     locations_input = st.text_input(
@@ -190,7 +185,6 @@ if submitted:
     if not role or not locations_input:
         st.error("Please provide a job role and at least one location.")
     else:
-        # Map user-friendly names to LinkedIn codes
         experience_codes = [EXPERIENCE_LEVELS[level] for level in exp_level_options]
 
         locations = [loc.strip() for loc in locations_input.split(",")]
@@ -209,7 +203,6 @@ if submitted:
                 subset=["Job Title", "Company", "Link"]
             )
 
-            # --- Sort by Post Date ---
             st.session_state.cleaned_df["Days Ago"] = st.session_state.cleaned_df[
                 "Post Date"
             ].apply(convert_post_date_to_days)
@@ -221,8 +214,6 @@ if submitted:
             st.session_state.jobs_df = None
             st.session_state.cleaned_df = None
 
-
-# --- Display results ---
 if st.session_state.cleaned_df is not None:
     if not st.session_state.cleaned_df.empty:
         st.success(
@@ -235,7 +226,6 @@ if st.session_state.cleaned_df is not None:
         st.subheader("Sorted Job Listings")
         st.dataframe(st.session_state.cleaned_df)
 
-        # --- Save to CSV ---
         st.subheader("Download Data")
         df_for_csv = st.session_state.cleaned_df.copy()
         df_for_csv["Link"] = df_for_csv["Link"].apply(
@@ -251,7 +241,6 @@ if st.session_state.cleaned_df is not None:
             mime="text/csv",
         )
 
-        # --- Visualize Job Frequency ---
         st.subheader("Job Frequency by Company")
         company_counts = st.session_state.cleaned_df["Company"].value_counts().head(20)
         st.bar_chart(company_counts)
@@ -260,7 +249,6 @@ if st.session_state.cleaned_df is not None:
         st.error(
             "Failed to scrape any job listings with the selected criteria. Please try again or broaden your search."
         )
-
 
 st.markdown("---")
 st.markdown("Built with ❤️ using Streamlit, Selenium, and BeautifulSoup.")
