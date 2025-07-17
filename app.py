@@ -15,30 +15,31 @@ from datetime import datetime, timedelta
 def scrape_linkedin(role, location, experience_levels):
     """
     Scrapes job listings from LinkedIn for a given role, location, and filters.
-
-    Args:
-        role (str): The job role to search for.
-        location (str): The location to search in.
-        experience_levels (list): A list of experience level codes.
-
-    Returns:
-        pandas.DataFrame: A DataFrame containing the scraped job listings.
     """
     # --- Selenium Setup for Streamlit Cloud ---
     st.info(f"Setting up browser to search for '{role}' in {location}...")
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument(
-        "--disable-gpu"
-    )  # Recommended for headless environments
 
-    driver = None  # Initialize driver to None
+    # --- Chrome Options Setup ---
+    # These options are crucial for running Chrome in a headless, containerized environment like Streamlit Cloud
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")  # Run in headless mode
+    chrome_options.add_argument("--no-sandbox")  # Bypass OS security model
+    chrome_options.add_argument(
+        "--disable-dev-shm-usage"
+    )  # Overcome limited resource problems
+    chrome_options.add_argument("--disable-gpu")  # Applicable to windows os only
+    chrome_options.add_argument("--disable-extensions")  # Disabling extensions
+    chrome_options.add_argument("--window-size=1920,1080")  # Set a window size
+
+    driver = None
     try:
-        # Use webdriver-manager to handle the driver automatically
-        # This is more robust for different environments
+        # --- Use webdriver-manager to automatically download and manage the correct driver ---
+        # This is the key to solving the version mismatch error.
+        # It will detect the installed Chrome/Chromium version and download the corresponding driver.
+        st.write("Installing/Updating ChromeDriver...")
         service = Service(ChromeDriverManager().install())
+
+        st.write("Initializing WebDriver...")
         driver = webdriver.Chrome(service=service, options=chrome_options)
 
         # --- Build LinkedIn URL with Filters ---
@@ -113,6 +114,7 @@ def scrape_linkedin(role, location, experience_levels):
         return pd.DataFrame()
     finally:
         if driver:
+            st.write("Closing WebDriver.")
             driver.quit()
 
 
