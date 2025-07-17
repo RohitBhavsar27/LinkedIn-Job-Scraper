@@ -10,10 +10,13 @@ import re
 from bs4 import BeautifulSoup
 
 
-# This function checks if the app is running on Streamlit Cloud
-def is_running_on_streamlit_cloud():
-    """Returns True if the app is running on Streamlit Cloud, False otherwise."""
-    return "STREAMLIT_SERVER_PORT" in os.environ
+# This function checks if the app is running in a containerized cloud environment
+def is_running_in_cloud():
+    """
+    Returns True if the app is running in a cloud environment (like Render or Streamlit Cloud),
+    False otherwise. It checks for a common environment variable.
+    """
+    return "PORT" in os.environ or "STREAMLIT_SERVER_PORT" in os.environ
 
 
 def scrape_linkedin(role, location, experience_levels):
@@ -24,22 +27,16 @@ def scrape_linkedin(role, location, experience_levels):
 
     chrome_options = Options()
 
-    # --- Selenium Setup for Streamlit Cloud ---
-    # These options and the binary location are crucial for running on Streamlit Cloud
-    if is_running_on_streamlit_cloud():
-        st.write("Running on Streamlit Cloud, setting up headless Chrome...")
-        chrome_options.add_argument("--headless=new")  # Use the new headless mode
+    # --- Selenium Setup for Cloud Environment ---
+    # These options are crucial for running Chrome in a headless, containerized environment
+    if is_running_in_cloud():
+        st.write("Running in cloud environment, setting up headless Chromium...")
+        chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument(
-            "--disable-extensions"
-        )  # Disabling extensions can help
-        chrome_options.add_argument(
-            "--disable-software-rasterizer"
-        )  # Can help in headless environments
         chrome_options.add_argument("--window-size=1920,1080")
-        # The binary location for Chromium installed via apt-get in packages.txt
+        # The binary location for Chromium installed via apt-get in the Dockerfile
         chrome_options.binary_location = "/usr/bin/chromium"
 
     driver = None
@@ -214,7 +211,6 @@ if submitted:
                 subset=["Job Title", "Company", "Link"]
             )
 
-            # Corrected the typo here
             st.session_state.cleaned_df["Days Ago"] = st.session_state.cleaned_df[
                 "Post Date"
             ].apply(convert_post_date_to_days)
