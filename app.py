@@ -23,30 +23,23 @@ def scrape_linkedin(role, location, experience_levels):
     """
     Scrapes job listings from LinkedIn for a given role, location, and filters.
     """
-    st.info(f"Setting up browser to search for '{role}' in {location}...")
-
     chrome_options = Options()
 
     # --- Selenium Setup for Cloud Environment ---
-    # These options are crucial for running Chrome in a headless, containerized environment
     if is_running_in_cloud():
-        st.write("Running in cloud environment, setting up headless Chromium...")
+        st.sidebar.write("Running in cloud, setting up headless Chromium...")
         chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--window-size=1920,1080")
-        # The binary location for Chromium installed via apt-get in the Dockerfile
         chrome_options.binary_location = "/usr/bin/chromium"
 
     driver = None
     try:
-        # --- Use Selenium Manager (built-in from Selenium 4.6.0+) ---
-        # This will automatically detect the browser version and download the correct driver.
-        st.write("Initializing WebDriver with Selenium Manager...")
+        # --- Use Selenium Manager ---
         service = Service()
         driver = webdriver.Chrome(service=service, options=chrome_options)
-        st.write("WebDriver initialized successfully.")
 
         # --- Build LinkedIn URL with Filters ---
         base_url = "https://www.linkedin.com/jobs/search/?"
@@ -56,13 +49,11 @@ def scrape_linkedin(role, location, experience_levels):
             params["f_E"] = ",".join(experience_levels)
 
         search_url = base_url + urlencode(params)
-        st.write(f"Navigating to: {search_url}")
         driver.get(search_url)
 
         time.sleep(10)
 
         # --- Scrolling to load all jobs ---
-        st.write("Scrolling to load more job listings...")
         last_height = driver.execute_script("return document.body.scrollHeight")
         for _ in range(3):
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
@@ -73,15 +64,12 @@ def scrape_linkedin(role, location, experience_levels):
             last_height = new_height
 
         # --- Scraping with BeautifulSoup ---
-        st.write("Parsing job data...")
         soup = BeautifulSoup(driver.page_source, "html.parser")
 
         job_listings = soup.find_all("div", class_="base-card")
 
         if not job_listings:
-            st.warning(
-                f"No job listings found for the specified criteria in '{location}'."
-            )
+            st.sidebar.warning(f"No listings found in '{location}'.")
             return pd.DataFrame()
 
         jobs_data = []
@@ -116,11 +104,10 @@ def scrape_linkedin(role, location, experience_levels):
         return pd.DataFrame(jobs_data)
 
     except Exception as e:
-        st.error(f"An error occurred while scraping {location}: {e}")
+        st.sidebar.error(f"Error scraping {location}: {e}")
         return pd.DataFrame()
     finally:
         if driver:
-            st.write("Closing WebDriver.")
             driver.quit()
 
 
@@ -149,22 +136,66 @@ def convert_post_date_to_days(post_date_str):
 
 
 # --- Streamlit App UI ---
-st.set_page_config(page_title="LinkedIn Job Scraper", layout="wide")
-st.title("LinkedIn Job Scraper Bot 🤖")
+st.set_page_config(page_title="Easy Hunt | LinkedIn Job Scraper", layout="wide")
 
+# --- UI Enhancements ---
 st.markdown(
     """
-This application scrapes job listings from LinkedIn with advanced filters. 
-You can provide a list of locations, and the app will search them in order.
-**Note:** This is for educational purposes. Please be mindful of LinkedIn's terms of service.
-"""
+    <style>
+    h1 {
+        text-align: center;
+        color: #1E90FF;
+    }
+    .spacer {
+        margin-top: 50px;
+    }
+    .stButton>button {
+        background-color: #4CAF50;
+        color: white;
+        font-weight: bold;
+        border-radius: 12px;
+        padding: 10px 20px;
+        transition: all 0.3s ease;
+    }
+    .stButton>button:hover {
+        background-color: #45a049;
+        transform: scale(1.05);
+    }
+    .stMultiSelect, .stTextInput {
+        border-radius: 8px;
+    }
+    div[data-testid="stTextInput"], div[data-testid="stMultiSelect"] {
+        margin-bottom: 15px;
+    }
+    th {
+        text-align: center !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
+st.title("Easy Hunt Bot 🤖")
+
+st.info(
+    """
+    **Welcome to the Easy Hunt Bot!**
+    This tool helps you find relevant job listings from LinkedIn based on your criteria.
+    - Enter a job role and comma-separated locations.
+    - Apply filters like experience level for more accurate results.
+    - The app will scrape the data, clean it, and display it in an interactive table.
+    """
+)
+
+# --- Session State Initialization ---
 if "cleaned_df" not in st.session_state:
     st.session_state.cleaned_df = None
 if "jobs_df" not in st.session_state:
     st.session_state.jobs_df = None
+if "search_triggered" not in st.session_state:
+    st.session_state.search_triggered = False
 
+# --- Experience Level Mapping ---
 EXPERIENCE_LEVELS = {
     "Internship": "1",
     "Entry level": "2",
@@ -174,89 +205,136 @@ EXPERIENCE_LEVELS = {
     "Executive": "6",
 }
 
-with st.form("job_search_form"):
-    role = st.text_input("Enter Job Role", "Data Scientist")
-    locations_input = st.text_input(
-        "Enter Locations (comma-separated)", "Pune, Maharashtra, India"
-    )
+# --- Sidebar for User Input ---
+with st.sidebar:
+    st.header("🔍 Search Filters")
+    with st.form("job_search_form"):
+        role = st.text_input("Enter Job Role", "Software Developer")
+        locations_input = st.text_input(
+            "Enter Locations (comma-separated)", "Pune, Maharashtra, India"
+        )
+        exp_level_options = st.multiselect(
+            "Experience Level",
+            options=list(EXPERIENCE_LEVELS.keys()),
+            default=st.session_state.get("exp_level_options", []),
+        )
+        submitted = st.form_submit_button("Scrape Jobs")
 
-    st.write("### Filters")
+    if submitted:
+        if not role or not locations_input:
+            st.error("Please provide a job role and at least one location.")
+        else:
+            st.session_state.search_triggered = True
+            st.session_state.exp_level_options = exp_level_options
 
-    exp_level_options = st.multiselect(
-        "Experience Level",
-        options=list(EXPERIENCE_LEVELS.keys()),
-    )
+            experience_codes = [EXPERIENCE_LEVELS[level] for level in exp_level_options]
+            locations = [loc.strip() for loc in locations_input.split(",")]
+            all_jobs_list = []
 
-    submitted = st.form_submit_button("Scrape Jobs")
+            progress_bar = st.progress(0)
+            status_text = st.empty()
 
-if submitted:
-    if not role or not locations_input:
-        st.error("Please provide a job role and at least one location.")
-    else:
-        experience_codes = [EXPERIENCE_LEVELS[level] for level in exp_level_options]
-
-        locations = [loc.strip() for loc in locations_input.split(",")]
-        all_jobs_list = []
-
-        with st.spinner(f"Scraping LinkedIn for '{role}' positions..."):
-            for loc in locations:
+            for i, loc in enumerate(locations):
                 if loc:
+                    status_text.info(f"Searching for '{role}' in {loc}...")
+                    # Scrape and update progress
                     scraped_data = scrape_linkedin(role, loc, experience_codes)
                     if not scraped_data.empty:
                         all_jobs_list.append(scraped_data)
+                    progress_bar.progress((i + 1) / len(locations))
 
-        if all_jobs_list:
-            st.session_state.jobs_df = pd.concat(all_jobs_list, ignore_index=True)
-            st.session_state.cleaned_df = st.session_state.jobs_df.drop_duplicates(
-                subset=["Job Title", "Company", "Link"]
-            )
+            status_text.success("Search Complete!")
 
-            st.session_state.cleaned_df["Days Ago"] = st.session_state.cleaned_df[
-                "Post Date"
-            ].apply(convert_post_date_to_days)
-            st.session_state.cleaned_df = st.session_state.cleaned_df.sort_values(
-                by="Days Ago"
-            ).drop(columns=["Days Ago"])
+            if all_jobs_list:
+                st.session_state.jobs_df = pd.concat(all_jobs_list, ignore_index=True)
+                st.session_state.cleaned_df = st.session_state.jobs_df.drop_duplicates(
+                    subset=["Job Title", "Company", "Link"]
+                )
+                st.session_state.cleaned_df["Days Ago"] = st.session_state.cleaned_df[
+                    "Post Date"
+                ].apply(convert_post_date_to_days)
+                st.session_state.cleaned_df = st.session_state.cleaned_df.sort_values(
+                    by="Days Ago"
+                ).drop(columns=["Days Ago"])
+            else:
+                st.session_state.jobs_df = None
+                st.session_state.cleaned_df = None
 
-        else:
-            st.session_state.jobs_df = None
-            st.session_state.cleaned_df = None
-
-if st.session_state.cleaned_df is not None:
-    if not st.session_state.cleaned_df.empty:
+# --- Main Content Area ---
+if st.session_state.search_triggered:
+    if (
+        st.session_state.cleaned_df is not None
+        and not st.session_state.cleaned_df.empty
+    ):
         st.success(
-            f"Scraping complete! Found {len(st.session_state.jobs_df)} total listings before cleaning."
-        )
-        st.info(
-            f"After removing duplicates and sorting, {len(st.session_state.cleaned_df)} unique jobs were found."
+            f"Found {len(st.session_state.jobs_df)} total listings. After cleaning, {len(st.session_state.cleaned_df)} unique jobs were found."
         )
 
-        st.subheader("Sorted Job Listings")
-        st.dataframe(st.session_state.cleaned_df)
+        # --- Interactive DataFrame ---
+        st.subheader("Interactive Job Listings")
+        df_display = st.session_state.cleaned_df.copy()
+        df_display["Link"] = df_display["Link"].apply(
+            lambda url: (
+                f'<a href="{url}" target="_blank">Apply</a>' if url != "N/A" else "N/A"
+            )
+        )
+        st.markdown(
+            df_display.to_html(escape=False, index=False), unsafe_allow_html=True
+        )
 
+        # --- Download Button ---
         st.subheader("Download Data")
-        df_for_csv = st.session_state.cleaned_df.copy()
-        df_for_csv["Link"] = df_for_csv["Link"].apply(
-            lambda url: f'=HYPERLINK("{url}", "Apply Here")' if url != "N/A" else "N/A"
-        )
-
         csv_role = role.replace(" ", "_")
-        csv = df_for_csv.to_csv(index=False).encode("utf-8")
+        csv = st.session_state.cleaned_df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="Download data as CSV",
+            label="Download as CSV",
             data=csv,
             file_name=f"{csv_role}_jobs.csv",
             mime="text/csv",
         )
 
-        st.subheader("Job Frequency by Company")
-        company_counts = st.session_state.cleaned_df["Company"].value_counts().head(20)
-        st.bar_chart(company_counts)
+        # --- Visualizations ---
+        st.subheader("Job Market Insights")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.write("#### Job Frequency by Company")
+            company_counts = (
+                st.session_state.cleaned_df["Company"].value_counts().head(10)
+            )
+            st.bar_chart(company_counts)
+
+        with col2:
+            st.write("#### Job Distribution by Location")
+            location_counts = st.session_state.cleaned_df[
+                "Searched Location"
+            ].value_counts()
+            st.line_chart(location_counts)
 
     else:
         st.error(
-            "Failed to scrape any job listings with the selected criteria. Please try again or broaden your search."
+            "No job listings found with the selected criteria. Please try again or broaden your search."
         )
 
+    if st.button("Clear Results"):
+        st.session_state.search_triggered = False
+        st.session_state.cleaned_df = None
+        st.session_state.jobs_df = None
+        st.experimental_rerun()
+
+else:
+    st.markdown(
+        """
+        <div style="text-align: center; margin-top: 50px;">
+            <h3>Ready to start your job search?</h3>
+            <p>Use the filters on the left to begin.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 st.markdown("---")
-st.markdown("Built with ❤️ using Streamlit, Selenium, and BeautifulSoup.")
+st.markdown(
+    "<p style='text-align: center;'>Easy Hunt Bot — Your smart assistant for automated job discovery.</p>",
+    unsafe_allow_html=True,
+)
