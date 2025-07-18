@@ -27,7 +27,6 @@ def scrape_linkedin(role, location, experience_levels):
 
     # --- Selenium Setup for Cloud Environment ---
     if is_running_in_cloud():
-        st.sidebar.write("Running in cloud, setting up headless Chromium...")
         chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
@@ -218,7 +217,7 @@ with st.sidebar:
             options=list(EXPERIENCE_LEVELS.keys()),
             default=st.session_state.get("exp_level_options", []),
         )
-        submitted = st.form_submit_button("Scrape Jobs")
+        submitted = st.form_submit_button("Search Jobs")
 
     if submitted:
         if not role or not locations_input:
@@ -236,11 +235,10 @@ with st.sidebar:
 
             for i, loc in enumerate(locations):
                 if loc:
-                    status_text.info(f"Searching for '{role}' in {loc}...")
-                    # Scrape and update progress
-                    scraped_data = scrape_linkedin(role, loc, experience_codes)
-                    if not scraped_data.empty:
-                        all_jobs_list.append(scraped_data)
+                    with st.spinner(f"Searching for '{role}' in {loc}..."):
+                        scraped_data = scrape_linkedin(role, loc, experience_codes)
+                        if not scraped_data.empty:
+                            all_jobs_list.append(scraped_data)
                     progress_bar.progress((i + 1) / len(locations))
 
             status_text.success("Search Complete!")
@@ -320,7 +318,7 @@ if st.session_state.search_triggered:
         st.session_state.search_triggered = False
         st.session_state.cleaned_df = None
         st.session_state.jobs_df = None
-        st.experimental_rerun()
+        st.rerun()
 
 else:
     st.markdown(
