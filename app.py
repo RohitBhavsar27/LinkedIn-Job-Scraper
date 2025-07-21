@@ -8,6 +8,9 @@ import os
 from urllib.parse import urlparse, urlencode
 import re
 from bs4 import BeautifulSoup
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
 
 
 # This function checks if the app is running in a containerized cloud environment
@@ -50,13 +53,15 @@ def scrape_linkedin(role, location, experience_levels):
         search_url = base_url + urlencode(params)
         driver.get(search_url)
 
-        time.sleep(10)
+        # --- Wait for job listings to load ---
+        wait = WebDriverWait(driver, 20)
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "base-card")))
 
         # --- Scrolling to load all jobs ---
         last_height = driver.execute_script("return document.body.scrollHeight")
-        for _ in range(3):
+        for _ in range(5):  # Increased scroll attempts for longer pages
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(5)
+            time.sleep(2)  # Shorter sleep, but still necessary for dynamic loading
             new_height = driver.execute_script("return document.body.scrollHeight")
             if new_height == last_height:
                 break
